@@ -1,4 +1,6 @@
+
 import time
+import requests
 from json import loads as json_loads
 from os import path as os_path
 from sys import exit as sys_exit
@@ -10,6 +12,23 @@ import logging
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s')
 
+def notify(_title, _message=None):
+    if not PUSH_KEY:
+        print("未配置PUSH_KEY！")
+        return
+
+    if not _message:
+        _message = _title
+
+    print(_title)
+    print(_message)
+
+    _response = requests.post(f"https://sc.ftqq.com/{PUSH_KEY}.send", {"text": _title, "desp": _message})
+
+    if _response.status_code == 200:
+        print(f"发送通知状态：{_response.content.decode('utf-8')}")
+    else:
+        print(f"发送通知失败：{_response.status_code}")
 
 class Fudan:
     """
@@ -95,6 +114,7 @@ class Fudan:
             logging.debug("登录成功")
         else:
             logging.debug("登录失败，请检查账号信息")
+            notify("登录失败")
             self.close()
 
     def logout(self):
@@ -142,15 +162,41 @@ class Zlapp(Fudan):
 
         if last_info["d"]["info"]["date"] == today:
             logging.info("今日已提交")
+            notify(f"{today}打卡成功：{position['formattedAddress']}")
             self.close()
         else:
             logging.info("未提交")
+            notify(f"{today}打卡失败")
             self.last_info = last_info["d"]["info"]
 
     def checkin(self):
         """
         提交
         """
+        logging.debug("检测是否已提交")
+        get_info = self.session.get(
+                'https://zlapp.fudan.edu.cn/ncov/wap/fudan/get-info')
+        last_info = get_info.json()
+
+        logging.info("上一次提交日期为: %s " % last_info["d"]["info"]["date"])
+
+        position = last_info["d"]["info"]['geo_api_info']
+        position = json_loads(position)
+
+        logging.info("上一次提交地址为: %s" % position['formattedAddress'])
+        
+        today = time.strftime("%Y%m%d", time.localtime())
+
+        if last_info["d"]["info"]["date"] == today:
+            logging.info("今日已提交")
+            notify(f"{today}已打卡：{position['formattedAddress']}")
+            self.close()
+        else:
+            logging.info("未提交")
+            #notify("打卡状态：", "打卡失败")
+            self.last_info = last_info["d"]["info"]
+        
+        
         headers = {
             "Host"      : "zlapp.fudan.edu.cn",
             "Referer"   : "https://zlapp.fudan.edu.cn/site/ncov/fudanDaily?from=history",
@@ -189,18 +235,18 @@ def get_account():
     """
     获取账号信息
     """
-    uid, psw = sys_argv[1].strip().split(' ')
-    return uid, psw
+    uid, psw, PUSH_KEY = sys_argv[1].strip().split(' ')
+    return uid, psw, PUSH_KEY
 
 if __name__ == '__main__':
-    uid, psw = get_account()
+    uid, psw, PUSH_KEY = get_account()
     # logging.debug("ACCOUNT：" + uid + psw)
     zlapp_login = 'https://uis.fudan.edu.cn/authserver/login?' \
                   'service=https://zlapp.fudan.edu.cn/site/ncov/fudanDaily'
     daily_fudan = Zlapp(uid, psw, url_login=zlapp_login)
     daily_fudan.login()
 
-    daily_fudan.check()
+    #daily_fudan.check()
     daily_fudan.checkin()
     # 再检查一遍
     daily_fudan.check()
